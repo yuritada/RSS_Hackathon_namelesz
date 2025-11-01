@@ -1,23 +1,26 @@
 <script setup>
-import { useRouter } from 'vue-router' // ★ 1. useRouter をインポート
-import { ref, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
+import { ref, onMounted, computed, watch } from 'vue' // ★ computed は不要になるので削除してもOK
+import { onAuthStateChanged } from 'firebase/auth' // ★ 1. onAuthStateChanged をインポート
 import { auth, getUserProfile, getMyPageStats, getMyPosts, getMyConnectedPosts, getMyLikedPosts } from '../firebaseService'
 import ThanksCard from '../components/ThanksCard.vue'
+import { replyToPost, isPostFormModalOpen } from '../store/modal'
 
-const router = useRouter() // ★ 2. routerインスタンスを取得
+const router = useRouter()
 
 const goBack = () => {
-  router.push('/main') // ★ 3. /main に戻る関数を定義
+  router.push('/main')
 }
 
-// ... (残りのスクリプト部分は変更なし) ...
 const userProfile = ref(null)
-const stats = ref({ relaysGiven: 0, relaysReceived: 0 }) // ★ プロパティ名を変更
+const stats = ref({ relaysGiven: 0, relaysReceived: 0 })
 const activeTab = ref('myPosts')
 const posts = ref([])
-const isLoading = ref(true)
+const isLoading = ref(true) // ★ 初期値は true のまま
 const isLoadingTab = ref(false)
-const uid = computed(() => auth.currentUser?.uid)
+// const uid = computed(() => auth.currentUser?.uid) // ★ 2. この行を削除
+const uid = ref(null) // ★ 3. uid を ref に変更
+
 const fetchFunctions = {
   myPosts: getMyPosts,
   connected: getMyConnectedPosts,
@@ -31,8 +34,9 @@ const fetchFunctions = {
   },
   liked: getMyLikedPosts
 }
+
 const switchTab = async (tabName) => {
-  if (!uid.value) return;
+  if (!uid.value) return; // ★ ref なので .value でOK
   activeTab.value = tabName
   isLoadingTab.value = true
   posts.value = []
@@ -44,26 +48,56 @@ const switchTab = async (tabName) => {
     isLoadingTab.value = false
   }
 }
-onMounted(async () => {
-  if (!uid.value) {
-    isLoading.value = false
-    return
-  }
-  try {
-    const [profile, statsData] = await Promise.all([
-      getUserProfile(uid.value),
-      getMyPageStats(uid.value)
-    ])
-    userProfile.value = profile
-    stats.value = statsData
-    await switchTab('myPosts')
-  } catch (error) {
-    console.error("マイページ情報の取得に失敗:", error)
-  } finally {
-    isLoading.value = false
+
+const handleNextActionClick = (post) => {
+  replyToPost.value = post
+  isPostFormModalOpen.value = true
+}
+
+watch(isPostFormModalOpen, (newValue, oldValue) => {
+  if (oldValue === true && newValue === false) {
+    if (activeTab.value === 'unFinishedConnected' || activeTab.value === 'finishedConnected') {
+      switchTab(activeTab.value)
+    }
   }
 })
 
+// ★ 4. onMounted の中身を onAuthStateChanged でラップする
+onMounted(() => {
+  // onAuthStateChanged は認証状態の監視を開始し、解除用の関数(unsubscribe)を返す
+  const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+    // このコールバックは、認証状態が確定した時（リロード時）に1回実行される
+    
+    if (firebaseUser) {
+      // ★ ユーザーがログインしている場合
+      uid.value = firebaseUser.uid // ★ ref に uid をセット
+      
+      // ★ ログインしているので、データを取得する（元のonMountedのロジック）
+      try {
+        const [profile, statsData] = await Promise.all([
+          getUserProfile(uid.value),
+          getMyPageStats(uid.value)
+        ])
+        userProfile.value = profile
+        stats.value = statsData
+        await switchTab('unFinishedConnected') 
+      } catch (error) {
+        console.error("マイページ情報の取得に失敗:", error)
+      } finally {
+        isLoading.value = false // ★ データを読み終えたらローディング解除
+      }
+
+    } else {
+      // ★ ユーザーがログインしていない場合
+      uid.value = null
+      isLoading.value = false // ★ ローディング解除
+    }
+    
+    // ★ 5. ページロード時の初回チェックが終わったら、監視を解除する
+    // (これがないと、このページでログアウトした時などにも再度実行されてしまうため)
+    unsubscribe()
+  })
+})
 </script>
 
 <template>
@@ -98,16 +132,22 @@ onMounted(async () => {
       </section>
 
       <nav class="tabs">
-        <a @click.prevent="switchTab('myPosts')" :class="{ active: activeTab === 'myPosts' }">感謝の投稿 (Thanks)</a>
-        <a @click.prevent="switchTab('unFinishedConnected')" :class="{ active: activeTab === 'unFinishedConnected' }">シェアした投稿 (Shared)</a>
-        <a @click.prevent="switchTab('finishedConnected')" :class="{ active: activeTab === 'finishedConnected' }">完了した投稿 (Finished)</a>
+        <a @click.prevent="switchTab('unFinishedConnected')" :class="{ active: activeTab === 'unFinishedConnected' }">ボトルメール (Shared)</a>
+        <a @click.prevent="switchTab('finishedConnected')" :class="{ active: activeTab === 'finishedConnected' }">完了 (Finished)</a>
+        <a @click.prevent="switchTab('myPosts')" :class="{ active: activeTab === 'myPosts' }">自分の投稿 (Thanks)</a>
         <a @click.prevent="switchTab('liked')" :class="{ active: activeTab === 'liked' }">いいね</a>
       </nav>
 
       <div class="content-area">
         <div v-if="isLoadingTab" class="message"><p>読み込み中...</p></div>
         <div v-else-if="posts.length > 0" class="posts-list">
-          <ThanksCard v-for="post in posts" :key="post.id" :post="post" />
+          <ThanksCard 
+            v-for="post in posts" 
+            :key="post.id" 
+            :post="post"
+            :show-next-action-button="activeTab === 'unFinishedConnected'"
+            @next-action-clicked="handleNextActionClick"
+          />
         </div>
         <div v-else class="message"><p>表示する投稿がありません。</p></div>
       </div>
@@ -116,7 +156,7 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-
+/* スタイル部分は変更なし */
 .header-actions {
   margin-bottom: 2rem;
 }
