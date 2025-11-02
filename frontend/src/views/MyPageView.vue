@@ -2,7 +2,8 @@
 import { useRouter } from 'vue-router'
 import { ref, onMounted, computed, watch } from 'vue' // ★ computed は不要になるので削除してもOK
 import { onAuthStateChanged } from 'firebase/auth' // ★ 1. onAuthStateChanged をインポート
-import { auth, getUserProfile, getMyPageStats, getMyPosts, getMyConnectedPosts, getMyLikedPosts } from '../firebaseService'
+import { auth, getUserProfile, getMyPageStats, getMyPosts, getMyConnectedPosts, getMyLikedPosts, getMyCompletedActions }
+from '../firebaseService'
 import ThanksCard from '../components/ThanksCard.vue'
 import { replyToPost, isPostFormModalOpen } from '../store/modal'
 
@@ -21,6 +22,7 @@ const isLoadingTab = ref(false)
 // const uid = computed(() => auth.currentUser?.uid) // ★ 2. この行を削除
 const uid = ref(null) // ★ 3. uid を ref に変更
 
+// fetchFunctions を修正
 const fetchFunctions = {
   myPosts: getMyPosts,
   connected: getMyConnectedPosts,
@@ -28,10 +30,7 @@ const fetchFunctions = {
     const allConnected = await getMyConnectedPosts(uid)
     return allConnected.filter(post => !post.isFinished)
   },
-  finishedConnected: async (uid) => {
-    const allConnected = await getMyConnectedPosts(uid)
-    return allConnected.filter(post => post.isFinished)
-  },
+  finishedConnected: getMyCompletedActions,  // ★ ここを変更
   liked: getMyLikedPosts
 }
 
@@ -67,11 +66,11 @@ onMounted(() => {
   // onAuthStateChanged は認証状態の監視を開始し、解除用の関数(unsubscribe)を返す
   const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
     // このコールバックは、認証状態が確定した時（リロード時）に1回実行される
-    
+
     if (firebaseUser) {
       // ★ ユーザーがログインしている場合
       uid.value = firebaseUser.uid // ★ ref に uid をセット
-      
+
       // ★ ログインしているので、データを取得する（元のonMountedのロジック）
       try {
         const [profile, statsData] = await Promise.all([
@@ -80,7 +79,7 @@ onMounted(() => {
         ])
         userProfile.value = profile
         stats.value = statsData
-        await switchTab('unFinishedConnected') 
+        await switchTab('unFinishedConnected')
       } catch (error) {
         console.error("マイページ情報の取得に失敗:", error)
       } finally {
@@ -92,7 +91,7 @@ onMounted(() => {
       uid.value = null
       isLoading.value = false // ★ ローディング解除
     }
-    
+
     // ★ 5. ページロード時の初回チェックが終わったら、監視を解除する
     // (これがないと、このページでログアウトした時などにも再度実行されてしまうため)
     unsubscribe()
@@ -141,9 +140,9 @@ onMounted(() => {
       <div class="content-area">
         <div v-if="isLoadingTab" class="message"><p>読み込み中...</p></div>
         <div v-else-if="posts.length > 0" class="posts-list">
-          <ThanksCard 
-            v-for="post in posts" 
-            :key="post.id" 
+          <ThanksCard
+            v-for="post in posts"
+            :key="post.id"
             :post="post"
             :show-next-action-button="activeTab === 'unFinishedConnected'"
             @next-action-clicked="handleNextActionClick"

@@ -29,7 +29,7 @@ export const getMyPageStats = async (uid) => {
     const [relaysGivenSnap, relaysReceivedSnap] = await Promise.all([
       getDocs(relaysGivenQuery),
       // ★ ここが relaysReceivedSnap になっていました。正しくは relaysReceivedQuery です。
-      getDocs(relaysReceivedQuery) 
+      getDocs(relaysReceivedQuery)
     ]);
     return { relaysGiven: relaysGivenSnap.size, relaysReceived: relaysReceivedSnap.size };
   } catch (error) {
@@ -102,7 +102,7 @@ export const getMyLikedPosts = async (uid) => {
  */
 export const getMyRootPosts = async (uid) => {
   if (!uid) return [];
-  
+
   const q = query(
     postsCollection,
     where("authorId", "==", uid),
@@ -118,6 +118,91 @@ export const getMyRootPosts = async (uid) => {
     return posts;
   } catch (error) {
     console.error("Error fetching my root posts:", error);
+    return [];
+  }
+};
+
+/**
+ * [マイページ用] 完了タブ: 自分がリプライとして投稿したaction投稿を取得
+ */
+export const getMyCompletedActions = async (uid) => {
+  if (!uid) {
+    console.log("❌ uid が空です");
+    return [];
+  }
+
+  console.log("🔍 getMyCompletedActions 開始, uid:", uid);
+
+  try {
+    // 1. 自分の完了済みタスクを取得（インデックス不要なクエリに変更）
+    const q = query(
+      tasksCollection,
+      where("userId", "==", uid),
+      where("isFinished", "==", true)
+      // orderBy を削除（インデックスが不要になる）
+    );
+    const tasksSnapshot = await getDocs(q);
+
+    console.log("📋 完了済みタスク数:", tasksSnapshot.size);
+
+    // 2. タスクを completedAt でソート & completedActionId を収集
+    const tasks = [];
+    tasksSnapshot.forEach(doc => {
+      const data = doc.data();
+      console.log("📄 タスクデータ:", doc.id, data);
+      if (data.completedActionId) {
+        tasks.push({
+          actionId: data.completedActionId,
+          completedAt: data.completedAt
+        });
+      }
+    });
+
+    // completedAt でソート（新しい順）
+    tasks.sort((a, b) => {
+      const aTime = a.completedAt?.toMillis() || 0;
+      const bTime = b.completedAt?.toMillis() || 0;
+      return bTime - aTime;
+    });
+
+    const actionIds = tasks.map(t => t.actionId);
+    console.log("🎯 収集したactionIds:", actionIds);
+
+    if (actionIds.length === 0) {
+      console.log("⚠️ completedActionId が見つかりませんでした");
+      return [];
+    }
+
+    // 3. postsコレクションから該当するaction投稿を取得
+    const posts = [];
+    const chunkSize = 30;
+    for (let i = 0; i < actionIds.length; i += chunkSize) {
+      const chunk = actionIds.slice(i, i + chunkSize);
+      console.log("🔎 postsを検索中, chunk:", chunk);
+      const postsQuery = query(
+        postsCollection,
+        where("__name__", "in", chunk)
+      );
+      const postsSnapshot = await getDocs(postsQuery);
+      console.log("📬 取得した投稿数:", postsSnapshot.size);
+      postsSnapshot.forEach(doc => {
+        const postData = { id: doc.id, ...doc.data() };
+        console.log("📮 投稿データ:", postData);
+        posts.push(postData);
+      });
+    }
+
+    // 4. actionIds の順序に従ってソート
+    posts.sort((a, b) => {
+      const aIndex = actionIds.indexOf(a.id);
+      const bIndex = actionIds.indexOf(b.id);
+      return aIndex - bIndex;
+    });
+
+    console.log("✅ 最終的に返す投稿数:", posts.length);
+    return posts;
+  } catch (error) {
+    console.error("❌ Error fetching my completed actions:", error);
     return [];
   }
 };
