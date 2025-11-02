@@ -132,10 +132,10 @@ onMounted(() => {
       </section>
 
       <nav class="tabs">
-        <a @click.prevent="switchTab('unFinishedConnected')" :class="{ active: activeTab === 'unFinishedConnected' }">ボトルメール (Shared)</a>
-        <a @click.prevent="switchTab('finishedConnected')" :class="{ active: activeTab === 'finishedConnected' }">完了 (Finished)</a>
-        <a @click.prevent="switchTab('myPosts')" :class="{ active: activeTab === 'myPosts' }">自分の投稿 (Thanks)</a>
-        <a @click.prevent="switchTab('liked')" :class="{ active: activeTab === 'liked' }">いいね</a>
+        <a @click.prevent="switchTab('unFinishedConnected')" :class="{ active: activeTab === 'unFinishedConnected' }">保管したボトルメール</a>
+        <a @click.prevent="switchTab('finishedConnected')" :class="{ active: activeTab === 'finishedConnected' }">繋げたボトルメール</a>
+        <a @click.prevent="switchTab('myPosts')" :class="{ active: activeTab === 'myPosts' }">自分が流したボトルメール</a>
+        <a @click.prevent="switchTab('liked')" :class="{ active: activeTab === 'liked' }">いいねしたボトルメール</a>
       </nav>
 
       <div class="content-area">
@@ -240,6 +240,7 @@ onMounted(() => {
   border-bottom: 3px solid transparent;
   transition: all 0.2s;
   cursor: pointer;
+  font-size: 0.9rem;
 }
 .tabs a:hover {
   color: #333;
