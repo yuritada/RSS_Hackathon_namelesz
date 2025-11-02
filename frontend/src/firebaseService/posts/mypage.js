@@ -3,12 +3,10 @@ import {
   query,
   where,
   orderBy,
-  // collection // collection をインポート
+  collection
 } from "firebase/firestore";
 // config.js から db と postsCollection をインポートする想定
-import { postsCollection } from '../config';
-
-
+import { postsCollection, tasksCollection } from '../config';
 
 /**
  * [マイページ用] 統計情報（リレーした数、された数）を取得【修正版】
@@ -30,7 +28,8 @@ export const getMyPageStats = async (uid) => {
   try {
     const [relaysGivenSnap, relaysReceivedSnap] = await Promise.all([
       getDocs(relaysGivenQuery),
-      getDocs(relaysReceivedQuery)
+      // ★ ここが relaysReceivedSnap になっていました。正しくは relaysReceivedQuery です。
+      getDocs(relaysReceivedQuery) 
     ]);
     return { relaysGiven: relaysGivenSnap.size, relaysReceived: relaysReceivedSnap.size };
   } catch (error) {
@@ -57,18 +56,25 @@ export const getMyPosts = async (uid) => {
 };
 
 /**
- * [マイページ用] 自分が「繋げた」（Next Actionした）投稿を取得
+ * ★ [マイページ用] 自分が「保管した」（Next Action待ちの）タスクを取得
+ * (getMyConnectedPosts の実装を tasks を見るように変更)
  */
 export const getMyConnectedPosts = async (uid) => {
   if (!uid) return [];
-  const q = query(postsCollection, where("authorId", "==", uid), where("type", "==", "action"), orderBy("timestamp", "desc"));
+  // ★ 参照先を postsCollection -> tasksCollection に変更
+  // ★ 検索条件を authorId -> userId に変更 (tasks コレクションのフィールド名に合わせる)
+  // ★ ソート順を timestamp -> savedAt に変更 (tasks コレクションのフィールド名に合わせる)
+  const q = query(tasksCollection, where("userId", "==", uid), orderBy("savedAt", "desc"));
   try {
     const querySnapshot = await getDocs(q);
     const posts = [];
     querySnapshot.forEach(doc => posts.push({ id: doc.id, ...doc.data() }));
+    // ★ MyPageView.vue 側で isFinished: false / true でフィルタリングされるので、
+    //    ここでは uid に紐づくタスクをすべて返す
     return posts;
   } catch (error) {
-    console.error("Error fetching my connected posts:", error);
+    // ★ エラーメッセージを分かりやすく変更
+    console.error("Error fetching my connected tasks:", error);
     return [];
   }
 };

@@ -1,5 +1,5 @@
 <script setup>
-import { defineProps, ref, onMounted, computed } from 'vue'
+import { defineProps, ref, onMounted, computed, defineEmits } from 'vue' // ★ defineEmits をインポート
 import { getUserProfile, likePost, saveAsTask, hidePost } from '../firebaseService'
 import { user } from '../store/user'
 import { useRouter } from 'vue-router'
@@ -18,8 +18,16 @@ const props = defineProps({
   isSelected: {
     type: Boolean,
     default: false
+  },
+  // ★ MyPageView から渡されるプロパティを追加
+  showNextActionButton: {
+    type: Boolean,
+    default: false
   }
 })
+
+// ★ emit を定義
+const emit = defineEmits(['next-action-clicked'])
 
 const router = useRouter()
 const authorName = ref('匿名ユーザー')
@@ -37,10 +45,17 @@ onMounted(async () => {
   // 著者情報の取得
   if (!props.post.isAnonymous) {
     try {
-      const profile = await getUserProfile(props.post.authorId)
-      if (profile) {
-        authorName.value = profile.displayName || '名前未設定のユーザー'
-        authorAvatar.value = profile.photoURL || null
+      // ★ MyPageViewから渡されるタスクオブジェクトの場合、authorId がない可能性を考慮
+      //    タスクオブジェクトに元投稿の著者ID (postAuthorId) があればそれを使う
+      const authorIdToFetch = props.post.authorId || props.post.postAuthorId
+      if (authorIdToFetch) {
+        const profile = await getUserProfile(authorIdToFetch)
+        if (profile) {
+          authorName.value = profile.displayName || '名前未設定のユーザー'
+          authorAvatar.value = profile.photoURL || null
+        }
+      } else {
+        authorName.value = '匿名ユーザー'
       }
     } catch (error) {
       console.error("ユーザープロフィールの取得に失敗:", error)
@@ -68,8 +83,10 @@ const formatTimestamp = (timestamp) => {
 
 
 const goToChain = () => {
-  if (!props.post || !props.post.id) return
-  router.push({ name: 'chain', params: { id: props.post.id } })
+  // ★ タスクオブジェクト (props.post) が持つ元の postId を参照する
+  const postId = props.post.postId || props.post.id
+  if (!postId) return
+  router.push({ name: 'chain', params: { id: postId } })
 }
 
 const myLikeCount = computed(() => {
@@ -89,12 +106,14 @@ const handleLike = async () => {
   }
   processing.value = true
   try {
+    // ★ タスクオブジェクト (props.post) が持つ元の postId を参照する
+    const postId = props.post.postId || props.post.id
     if (props.post.likeCount === undefined) props.post.likeCount = 0
     props.post.likeCount++
     if (!props.post.likesMap) props.post.likesMap = {}
     if (!props.post.likesMap[user.value.uid]) props.post.likesMap[user.value.uid] = 0
     props.post.likesMap[user.value.uid]++
-    await likePost(props.post.id, user.value.uid)
+    await likePost(postId, user.value.uid)
   } catch (error) {
     console.error("いいね処理中にエラー:", error)
     if (props.post.likeCount !== undefined) props.post.likeCount--;
@@ -118,7 +137,9 @@ const handleSaveTask = async () => {
   }
   processing.value = true
   try {
-    await saveAsTask(props.post.id, user.value.uid)
+    // ★ タスクオブジェクト (props.post) が持つ元の postId を参照する
+    const postId = props.post.postId || props.post.id
+    await saveAsTask(postId, user.value.uid)
     isTaskSaved.value = true
     alert("NextActionとして保存しました!")
   } catch (error) {
@@ -142,7 +163,9 @@ const handleHide = async () => {
   if (!confirm("この投稿を非表示にしますか?\n(以降表示されなくなります)")) return
   processing.value = true
   try {
-    await hidePost(props.post.id, user.value.uid)
+    // ★ タスクオブジェクト (props.post) が持つ元の postId を参照する
+    const postId = props.post.postId || props.post.id
+    await hidePost(postId, user.value.uid)
     alert("投稿を非表示にしました")
   } catch (error) {
     console.error("非表示エラー:", error)
@@ -150,6 +173,11 @@ const handleHide = async () => {
   } finally {
     processing.value = false
   }
+}
+
+// ★ Next Action ボタンがクリックされたときに emit する関数
+const handleNextAction = () => {
+  emit('next-action-clicked', props.post)
 }
 
 const cardStyle = computed(() => {
@@ -183,20 +211,20 @@ const cardStyle = computed(() => {
         <div class="thread-text">
           <div class="thread-header">
             <span class="thread-name">{{ authorName }}</span>
-            <span class="thread-time">{{ formatTimestamp(props.post.timestamp) }}</span>
+            <span class="thread-time">{{ formatTimestamp(props.post.postTimestamp || props.post.timestamp) }}</span>
           </div>
           
           <div class="thread-body">
-            {{ props.post.text }}
+            {{ props.post.postText || props.post.text }}
           </div>
           
-          <div v-if="props.post.feeling" class="thread-feeling">
-            "{{ props.post.feeling }}"
+          <div v-if="props.post.postFeeling || props.post.feeling" class="thread-feeling">
+            "{{ props.post.postFeeling || props.post.feeling }}"
           </div>
           
-          <div v-if="props.post.tags && props.post.tags.length > 0" class="thread-tags">
+          <div v-if="props.post.postTags || (props.post.tags && props.post.tags.length > 0)" class="thread-tags">
             <span 
-              v-for="tag in props.post.tags" 
+              v-for="tag in (props.post.postTags || props.post.tags)" 
               :key="tag" 
               class="tag"
             >
@@ -207,33 +235,47 @@ const cardStyle = computed(() => {
       </div>
     </div>
 
-    <!-- 木製バーのアクションボタン -->
     <div class="thread-actions-below">
-      <!-- 封蝋風いいねボタン -->
-      <button @click="handleLike" class="like-button seal-style" title="10回までいいね可能">
+      <button @click.stop="handleLike" class="like-button seal-style" title="10回までいいね可能">
         <span class="seal-wax">❤️</span>
         <span class="seal-count">{{ props.post.likeCount || 0 }}</span>
         <span v-if="myLikeCount > 0" class="my-like-indicator">{{ myLikeCount }}/10</span>
       </button>
       
-      <!-- その他のアクションボタン -->
       <div class="action-buttons">
-        <button @click="goToChain" class="draft-button" title="連鎖マップを見る">
+
+        <button
+          v-if="props.showNextActionButton"
+          @click.stop="handleNextAction"
+          class="draft-button next-action-style"
+          title="この優しさを続ける"
+        >
+          <span class="button-icon">🚀</span>
+          <span>続ける</span>
+        </button>
+
+        <button @click.stop="goToChain" class="draft-button" title="連鎖マップを見る">
           <span class="button-icon">🌳</span>
           <span>マップ</span>
         </button>
         
         <button 
-          @click="handleSaveTask" 
+          @click.stop="handleSaveTask" 
           class="draft-button task-style"
           :class="{ saved: isTaskSaved }"
           :title="isTaskSaved ? 'Task保存済み' : 'Taskとして保存'"
+          v-if="!props.showNextActionButton" 
         >
           <span class="button-icon">{{ isTaskSaved ? '✓' : '📌' }}</span>
           <span>{{ isTaskSaved ? '保存済み' : 'ボトルを保管' }}</span>
         </button>
         
-        <button @click="handleHide" class="hide-button" title="この投稿を非表示">
+        <button 
+          @click.stop="handleHide" 
+          class="hide-button" 
+          title="この投稿を非表示"
+          v-if="!props.showNextActionButton"
+        >
           <span class="button-icon">🌊</span>
           <span>遠くに流す</span>
         </button>
@@ -243,6 +285,8 @@ const cardStyle = computed(() => {
 </template>
 
 <style scoped>
+/* 既存のスタイル ... (変更なし) ... */
+
 /* 投稿とボタンのラッパー */
 .post-wrapper {
   display: flex;
@@ -260,7 +304,7 @@ const cardStyle = computed(() => {
   background: transparent;
   border-radius: 0;
   box-shadow: none;
-  cursor: pointer;
+  /* ★ cursor: pointer; はMyPageViewでは不要かもしれないので削除（またはそのまま） */
   transition: transform 0.2s, filter 0.3s ease;
   min-height: 350px;
   display: flex;
@@ -651,6 +695,20 @@ const cardStyle = computed(() => {
   font-size: 0.9rem;
 }
 
+/* ★ Next Action ボタンのスタイルを追加 */
+.draft-button.next-action-style {
+  background: linear-gradient(to bottom, #fce4ec 0%, #f8bbd0 100%);
+  border: 2px solid #e91e63;
+  color: #c2185b;
+  font-weight: bold;
+}
+.draft-button.next-action-style:hover {
+  background: linear-gradient(to bottom, #fdecf2 0%, #fce4ec 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+
 /* レスポンシブ対応 */
 @media (max-width: 768px) {
   .thread-item {
@@ -662,10 +720,7 @@ const cardStyle = computed(() => {
     width: 65%;
   }
   
-  .avatar {
-    width: 36px;
-    height: 36px;
-  }
+  /* .avatar { ... } (元のコードにないので省略) */
   
   .thread-name {
     font-size: 0.85rem;

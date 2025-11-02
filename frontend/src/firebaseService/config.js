@@ -23,3 +23,6 @@ export const auth = getAuth(app);
 export const postsCollection = collection(db, 'posts');
 // users コレクションへの参照も追加しておくと便利
 export const usersCollection = collection(db, 'users');
+
+// ★ 'tasks' コレクションへの参照を追加
+export const tasksCollection = collection(db, 'tasks');
