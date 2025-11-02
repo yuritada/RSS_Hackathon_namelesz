@@ -1,9 +1,13 @@
 <script setup>
 import { ref, computed, defineProps, defineEmits, watch, nextTick } from 'vue'
-import { likePost } from '../firebaseService'
+import { likePost, saveAsTask, hidePost } from '../firebaseService' // ★ 追加
 import { isPostFormModalOpen, replyToPost } from '../store/modal'
 import { user } from '../store/user'
+import { useRouter } from 'vue-router' // ★ 追加
 import letterImage from '../assets/letter1.png'
+
+const router = useRouter() // ★ 追加
+const processing = ref(false) // ★ 追加
 
 const props = defineProps({
   chainPosts: {
@@ -72,7 +76,6 @@ const stopResize = () => {
 watch(() => props.highlightedPostIndex, async (newIndex) => {
   if (props.isOpen && popupContent.value) {
     await nextTick()
-    // ハイライトされた要素を探してスクロール
     const highlightedElement = popupContent.value.querySelector('.thread-item.highlight')
     if (highlightedElement) {
       highlightedElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
@@ -84,7 +87,6 @@ watch(() => props.highlightedPostIndex, async (newIndex) => {
 watch(() => props.isOpen, async (isOpen) => {
   if (isOpen && popupContent.value) {
     await nextTick()
-    // 少し遅延させてDOMが完全にレンダリングされるのを待つ
     setTimeout(() => {
       const highlightedElement = popupContent.value?.querySelector('.thread-item.highlight')
       if (highlightedElement) {
@@ -98,7 +100,7 @@ watch(() => props.isOpen, async (isOpen) => {
 const handleLike = async (post, event) => {
   event.stopPropagation()
   if (!user.value) {
-    alert("いいねするにはログインが必要です。")
+    router.push('/login') // ★ 修正
     return
   }
 
@@ -107,6 +109,9 @@ const handleLike = async (post, event) => {
     alert("いいねは一投稿につき10回までです！")
     return
   }
+
+  if (processing.value) return // ★ 追加
+  processing.value = true // ★ 追加
 
   try {
     if (post.likeCount === undefined) post.likeCount = 0
@@ -120,6 +125,8 @@ const handleLike = async (post, event) => {
     post.likeCount--
     post.likesMap[user.value.uid]--
     alert("いいねに失敗しました。")
+  } finally {
+    processing.value = false // ★ 追加
   }
 }
 
@@ -130,20 +137,49 @@ const handleReply = (post, event) => {
   isPostFormModalOpen.value = true
 }
 
-// 返信を保管（下書き保存）
-const handleDraft = (post, event) => {
+// ★ 返信を保管（Task保存機能を実装）
+const handleDraft = async (post, event) => {
   event.stopPropagation()
-  // TODO: 後で実装する関数を呼び出す
-  console.log('返信を保管:', post.id)
-  alert('返信を保管しました（仮実装）')
+  if (!user.value) {
+    router.push('/login')
+    return
+  }
+  if (processing.value) return
+  processing.value = true
+  try {
+    await saveAsTask(post.id, user.value.uid)
+    alert("ボトルを保管しました！")
+  } catch (error) {
+    console.error("Task保存エラー:", error)
+    if (error && error.message && error.message.includes("既に")) {
+      alert("既にボトルを保管済みです")
+    } else {
+      alert("ボトルの保存に失敗しました")
+    }
+  } finally {
+    processing.value = false
+  }
 }
 
-// 投稿を非表示
-const handleHide = (post, event) => {
+// ★ 投稿を非表示（実装）
+const handleHide = async (post, event) => {
   event.stopPropagation()
-  // TODO: 後で実装する関数を呼び出す
-  console.log('非表示:', post.id)
-  alert('この投稿を非表示にしました（仮実装）')
+  if (!user.value) {
+    router.push('/login')
+    return
+  }
+  if (!confirm("この投稿を非表示にしますか?\n(以降表示されなくなります)")) return
+  if (processing.value) return
+  processing.value = true
+  try {
+    await hidePost(post.id, user.value.uid)
+    alert("投稿を非表示にしました")
+  } catch (error) {
+    console.error("非表示エラー:", error)
+    alert("非表示に失敗しました")
+  } finally {
+    processing.value = false
+  }
 }
 
 const getMyLikeCount = (post) => {
@@ -242,6 +278,7 @@ const handlePostClick = (index) => {
 }
 </script>
 
+<!-- template部分は変更なし -->
 <template>
   <!-- トグルボタン -->
   <button
