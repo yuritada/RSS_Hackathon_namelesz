@@ -18,7 +18,7 @@ const handleLogout = async () => {
 <template>
   <header class="header">
     <div class="logo">
-      <RouterLink :to="user ? '/main/recent' : '/'">Thanks</RouterLink>
+      <RouterLink :to="user ? '/main' : '/'">Thanks</RouterLink>
     </div>
 
     <nav v-if="!user" class="auth-nav">
